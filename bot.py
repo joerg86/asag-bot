@@ -10,6 +10,7 @@ import sys
 from simpletransformers.classification import ClassificationModel
 import spacy
 import time
+from google.cloud import translate_v2 as translate
 from dotenv import load_dotenv
 load_dotenv()
 import os
@@ -45,7 +46,7 @@ LANGS = {
     "fi": "Finnish",
     "hu": "Hungarian",
     "cs": "Czech",
-    "sh": "Serbo-Croation"
+    "sh": "Serbo-Croation",
 }
 
 
@@ -65,6 +66,31 @@ data = pd.read_csv("./texas-test-set-translated.csv")
 bert_model = ClassificationModel('bert', './models/asag-ml-6/', num_labels=1, use_cuda=False, args={ "regression": True })
 
 LANGUAGE_SELECT, QUESTION, FEEDBACK = range(3)
+
+
+translate_client = translate.Client()
+
+def translate_factory(lang):
+    """
+    Translate a column of the test set.
+    name - the name of the column, e.g. "model"
+    target = the target language, e.g. "de"
+    """
+
+    def tr(texts):
+        result = translate_client.translate(
+            texts, 
+            target_language=lang, 
+            source_language="en", 
+            model="nmt", 
+        )
+        return list([x["translatedText"] for x in result])
+
+    if lang == "en":
+        return lambda x: x
+    else:
+        return tr
+
 
 def start(update: Update, context: CallbackContext):
     update.message.reply_photo("https://images.pexels.com/photos/2166/flight-sky-earth-space.jpg?auto=compress&cs=tinysrgb&dpr=2&h=750&w=1260")
@@ -87,25 +113,39 @@ Please select your <strong>language</strong>:""",
 def set_language(update: Update, context: CallbackContext):
     #lang = update.message.text
     lang = update.callback_query.data
+    _ = translate_factory(lang)
     
     # initialize the user data
     context.user_data["lang"] = lang
     context.user_data["distance"] = 56
     context.user_data["asked_questions"] = set()
 
-    update.callback_query.message.reply_text(f"""Thank you! \u2764
-Language set to <strong>{LANGS[lang]}</strong>.
+    thanks, lang_set, ready =_([
+        "Thank you! \u2764",
+        f"Language set to <strong>{LANGS[lang]}</strong>.",
+        "Ready? Let's start the engine! Here is the first question:"
+    ])
+
+    update.callback_query.message.reply_text(f"""{thanks}
+{lang_set}
 
 You accidently selected the wrong language? 
 No problem, just type <code>/start</code> to restart!
 
-Ready? Let's start the engine! Here is the first question:
+{ready}
 """, parse_mode=telegram.ParseMode.HTML)
     return ask_question(update, context)
 
 def feedback(update: Update, context: CallbackContext):
-    update.callback_query.message.reply_html("""Thank you for your feedback. 
-Let's tackle the <strong>next question</strong>!""")
+    lang = context.user_data["lang"]
+    _ = translate_factory(lang)
+
+    thanks, tackle_next = _([
+        "Thank you for your feedback.",
+        "Let's tackle the <strong>next question</strong>!"
+    ])
+
+    update.callback_query.message.reply_html(thanks + "\n" + tackle_next)
     return ask_question(update, context)
 
 
@@ -120,19 +160,29 @@ def ask_feedback(update: Update, context: CallbackContext):
     model = question["model"+suffix]
     question_text = question["question"+suffix]
     answer = question["student"]
+    _ = translate_factory(lang)
 
-    update.message.reply_text(f"""<strong>Wait!</strong> To use the new fuel, you need to activate the fuel pump! To do this, please <strong>grade the following answer</strong> of an English speaking fellow astronaut:
+    intro, the_question, the_astro_answer, answer_tr, model_answer, cta = _([
+        "<strong>Wait!</strong> To use the new fuel, you need to activate the fuel pump! To do this, please <strong>grade the following answer</strong> of an English speaking fellow astronaut:",
+        "The question",
+        "The astronaut's answer",
+        answer,
+        "Model answer",
+        "<strong>How many points would you give?</strong> Please be fair and honest!", 
+    ])
 
-\u2753 <strong>The question</strong>:
+    update.message.reply_text(f"""{intro}
+
+\u2753 <strong>{the_question}</strong>:
 {question_text}
 
-\N{pencil} <strong>The astronaut's answer</strong>:
-<i>{answer}</i>
+\N{pencil} <strong>{the_astro_answer}</strong>:
+<i>{answer_tr}</i>
 
-\N{green book} <strong>Model answer</strong>: 
+\N{green book} <strong>{model_answer}</strong>: 
 {model}
 
-<strong>How many points would you give?</strong> Please be fair and honest!""", 
+{cta}""", 
     reply_markup=telegram.InlineKeyboardMarkup([list([telegram.InlineKeyboardButton(i, callback_data=i) for i in range(6)])], one_time_keyboard=True), parse_mode=telegram.ParseMode.HTML)
     return FEEDBACK
 
@@ -180,11 +230,16 @@ def grade_answer(update: Update, context: CallbackContext):
     suffix = "_" + lang if lang != "en" else ""
     model = question["model"+suffix]
     question_text = question["question"+suffix]
+    _ = translate_factory(lang)
 
     answer = update.message.text
 
     score_bert, raw_outputs = bert_model.predict([[model, answer]])
     score = round(score_bert.item())
+    
+    # one word answers get 0 points
+    if not " " in answer:
+        score = 0
 
     distance = context.user_data["distance"] = max(context.user_data["distance"] - 2*score, 0)
 
@@ -208,23 +263,34 @@ def grade_answer(update: Update, context: CallbackContext):
     distance_points = "".join(list(["." for x in range(distance)]))
     travelled_points = "".join(list(["." for x in range(56-distance)]))
 
-    update.message.reply_text(f"""Thank you for your answer! \U0001f44d
+    thanks, the_question, your_answer, model_answer, your_grade, points_text, fuel, remaining_dist = _([
+        "Thank you for your answer! \U0001f44d",
+        "The question",
+        "Your answer",
+        "Model answer",
+        "Your grade",
+        f"{score} of 5 points",
+        f"Awesome, that gives us fuel for {score*2} million more kilometers! \U0001F44F",
+        f"Only <strong>{distance} million</strong> km away from Mars!"
+    ])
 
-\u2753 <strong>The question</strong>:
+    update.message.reply_text(f"""{thanks}
+
+\u2753 <strong>{the_question}</strong>:
 {question_text}
 
-\N{pencil} <strong>Your answer</strong>:
+\N{pencil} <strong>{your_answer}</strong>:
 {answer}
 
-\N{green book} <strong>Model answer</strong>: 
+\N{green book} <strong>{model_answer}</strong>: 
 {model}
 
-\U0001F393 <strong>Your grade</strong>:
-{score} of 5 points {stars}
+\U0001F393 <strong>{your_grade}</strong>:
+{points_text} {stars}
 
-Awesome, that gives us fuel for {score*2} million more kilometers! \U0001F44F
+{fuel}
 
-Only <strong>{distance} million</strong> km away from Mars!
+{remaining_dist}
 \U0001F30D {travelled_points} \N{rocket} {distance_points} \U0001FA90""", parse_mode=telegram.ParseMode.HTML)
 
     time.sleep(5)
