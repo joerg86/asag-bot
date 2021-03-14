@@ -229,7 +229,7 @@ Now, the researchers on Earth need your help!
             [[InlineKeyboardButton("Open Survey", url="https://docs.google.com/forms/d/e/1FAIpQLSdpI1PDu1OCk5qrFv1n-BrJOfFIJrhFoba0GIaEYxeiGNvj5g/viewform")]]
         )
     )
-    update.message.reply_html("""<strong>Thank you!</strong>
+    message.reply_html("""<strong>Thank you!</strong>
 
 PS: If you would like to play again, just type:
 <code>/start</code>""")
