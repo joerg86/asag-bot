@@ -1,5 +1,7 @@
 import logging
 import telegram
+from telegram import parsemode
+from telegram.constants import PARSEMODE_HTML
 from telegram.ext import Updater
 from telegram.ext import CommandHandler, ConversationHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
 import pandas as pd
@@ -65,7 +67,7 @@ SIMILARITY_THRESHOLD = 0.5
 data = pd.read_csv("./texas-test-set-translated.csv")
 bert_model = ClassificationModel('bert', './models/asag-ml-6/', num_labels=1, use_cuda=False, args={ "regression": True })
 
-LANGUAGE_SELECT, QUESTION, FEEDBACK = range(3)
+LANGUAGE_SELECT, QUESTION, FEEDBACK, ASK_CONTINUE = range(4)
 
 
 translate_client = translate.Client()
@@ -120,9 +122,10 @@ def set_language(update: Update, context: CallbackContext):
     context.user_data["distance"] = 56
     context.user_data["asked_questions"] = set()
 
-    thanks, lang_set, ready =_([
+    thanks, lang_set, give_up_mission, ready =_([
         "Thank you! \u2764",
         f"Language set to <strong>{LANGS[lang]}</strong>.",
+        "If you feel that the questions are too difficult, you can end the mission at anytime by typing: <code>/giveup</code>.",
         "Ready? Let's start the engine! Here is the first question:"
     ])
 
@@ -131,6 +134,8 @@ def set_language(update: Update, context: CallbackContext):
 
 You accidently selected the wrong language? 
 No problem, just type <code>/start</code> to restart!
+
+{give_up_mission}
 
 {ready}
 """, parse_mode=telegram.ParseMode.HTML)
@@ -152,8 +157,9 @@ def feedback(update: Update, context: CallbackContext):
 def ask_feedback(update: Update, context: CallbackContext):
     result = data.query(f"""questionid == {context.user_data["questionid"]}""").to_dict("records")
     question = result[0]
+    message = update.message if update.message else update.callback_query.message
 
-    
+ 
 
     lang = context.user_data["lang"]
     suffix = "_" + lang if lang != "en" else ""
@@ -171,7 +177,7 @@ def ask_feedback(update: Update, context: CallbackContext):
         "<strong>How many points would you give?</strong> Please be fair and honest!", 
     ])
 
-    update.message.reply_text(f"""{intro}
+    message.reply_text(f"""{intro}
 
 \u2753 <strong>{the_question}</strong>:
 {question_text}
@@ -211,6 +217,24 @@ def ask_question(update: Update, context: CallbackContext):
     message.reply_html(f"\u2753 <strong>{question_text}</strong>")
 
     return QUESTION
+
+def giveup(update, context):
+    message = update.message if update.message else update.callback_query.message
+    message.reply_text(f"""<strong>Congratulations</strong>! You gave everything and you almost made it! \U0001F4AF
+
+Now, the researchers on Earth need your help! 
+<strong>Please help us by filling out our short survey:</strong>""", 
+        parse_mode=telegram.ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Open Survey", url="https://docs.google.com/forms/d/e/1FAIpQLSdpI1PDu1OCk5qrFv1n-BrJOfFIJrhFoba0GIaEYxeiGNvj5g/viewform")]]
+        )
+    )
+    update.message.reply_html("""<strong>Thank you!</strong>
+
+PS: If you would like to play again, just type:
+<code>/start</code>""")
+
+    return ConversationHandler.END
 
 def tokens2mdown(doc, highlights):
     output = []
@@ -263,7 +287,7 @@ def grade_answer(update: Update, context: CallbackContext):
     distance_points = "".join(list(["." for x in range(distance)]))
     travelled_points = "".join(list(["." for x in range(56-distance)]))
 
-    thanks, the_question, your_answer, model_answer, your_grade, points_text, fuel, remaining_dist = _([
+    thanks, the_question, your_answer, model_answer, your_grade, points_text, fuel, remaining_dist, continue_text, continue_button, giveup_button = _([
         "Thank you for your answer! \U0001f44d",
         "The question",
         "Your answer",
@@ -271,7 +295,10 @@ def grade_answer(update: Update, context: CallbackContext):
         "Your grade",
         f"{score} of 5 points",
         f"Awesome, that gives us fuel for {score*2} million more kilometers! \U0001F44F",
-        f"Only <strong>{distance} million</strong> km away from Mars!"
+        f"Only <strong>{distance} million</strong> km away from Mars!",
+        "Would you like to continue your space mission?",
+        "Continue",
+        "Give_up",
     ])
 
     update.message.reply_text(f"""{thanks}
@@ -293,10 +320,10 @@ def grade_answer(update: Update, context: CallbackContext):
 {remaining_dist}
 \U0001F30D {travelled_points} \N{rocket} {distance_points} \U0001FA90""", parse_mode=telegram.ParseMode.HTML)
 
-    time.sleep(5)
 
     # we have reached Mars, end the game
     if distance == 0:
+        time.sleep(5)
         update.message.reply_photo("https://cdn.pixabay.com/photo/2012/11/28/09/08/mars-67522_960_720.jpg")
         update.message.reply_text(f"""<strong>Congratulations</strong>, you successfully landed on Mars! \U0001F4AF
 
@@ -314,12 +341,24 @@ PS: If you would like to play again, just type:
 <code>/start</code>""",
         )
         return ConversationHandler.END
-    
-    return ask_feedback(update, context)
+    else:
+        update.message.reply_text(
+            continue_text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(continue_button, callback_data="continue"), InlineKeyboardButton(giveup_button, callback_data="giveup")]
+            ])
+        )
+        return ASK_CONTINUE
 
 def done(update: Update, context: CallbackContext):
     print("done")
     return ConversationHandler.END
+
+def continue_callback(update: Update, context: CallbackContext):
+    if update.callback_query.data == "giveup":
+        return giveup(update, context)
+    else:
+        return ask_feedback(update, context)
 
 def main() -> None:
 
@@ -344,10 +383,13 @@ def main() -> None:
                 CallbackQueryHandler(
                     feedback
                 )
-            }
+            },
+            ASK_CONTINUE: [
+                CallbackQueryHandler(continue_callback)
+            ]
 
         },
-        fallbacks=[CommandHandler("start", start)],
+        fallbacks=[CommandHandler("start", start), CommandHandler("giveup", giveup)],
     )
 
     dispatcher.add_handler(conv_handler)
