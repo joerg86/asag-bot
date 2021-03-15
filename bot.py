@@ -342,10 +342,10 @@ PS: If you would like to play again, just type:
         )
         return ConversationHandler.END
     else:
-        update.message.reply_text(
+        update.message.reply_html(
             continue_text,
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton(continue_button, callback_data="continue"), InlineKeyboardButton(giveup_button, callback_data="giveup")]
+                [InlineKeyboardButton(continue_button, callback_data="continue"), InlineKeyboardButton(giveup_button.upper(), callback_data="giveup")]
             ])
         )
         return ASK_CONTINUE
