@@ -145,21 +145,28 @@ def feedback(update: Update, context: CallbackContext):
     lang = context.user_data["lang"]
     _ = translate_factory(lang)
 
-    thanks, tackle_next = _([
+    thanks, continue_text, continue_button, giveup_button = _([
         "Thank you for your feedback.",
-        "Let's tackle the <strong>next question</strong>!"
+        "Would you like to <strong>continue</strong> your space mission? If not, please give us feedback in our <strong>survey</strong>.",
+        "Continue",
+        "To the SURVEY",
     ])
 
-    update.callback_query.message.reply_html(thanks + "\n" + tackle_next)
-    return ask_question(update, context)
+    update.callback_query.message.reply_html(
+            thanks + "\n" +
+            continue_text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(continue_button, callback_data="continue"), 
+                InlineKeyboardButton(giveup_button.upper(), url="https://docs.google.com/forms/d/e/1FAIpQLSdpI1PDu1OCk5qrFv1n-BrJOfFIJrhFoba0GIaEYxeiGNvj5g/viewform")]
+            ])
+        )
+    return ASK_CONTINUE
 
 
 def ask_feedback(update: Update, context: CallbackContext):
     result = data.query(f"""questionid == {context.user_data["questionid"]}""").to_dict("records")
     question = result[0]
     message = update.message if update.message else update.callback_query.message
-
- 
 
     lang = context.user_data["lang"]
     suffix = "_" + lang if lang != "en" else ""
@@ -287,7 +294,7 @@ def grade_answer(update: Update, context: CallbackContext):
     distance_points = "".join(list(["." for x in range(distance)]))
     travelled_points = "".join(list(["." for x in range(56-distance)]))
 
-    thanks, the_question, your_answer, model_answer, your_grade, points_text, fuel, remaining_dist, continue_text, continue_button, giveup_button = _([
+    thanks, the_question, your_answer, model_answer, your_grade, points_text, fuel, remaining_dist = _([
         "Thank you for your answer! \U0001f44d",
         "The question",
         "Your answer",
@@ -296,9 +303,7 @@ def grade_answer(update: Update, context: CallbackContext):
         f"{score} of 5 points",
         f"Awesome, that gives us fuel for {score*2} million more kilometers! \U0001F44F",
         f"Only <strong>{distance} million</strong> km away from Mars!",
-        "Would you like to <strong>continue</strong> your space mission? If not, please give us feedback in our <strong>survey</strong>.",
-        "Continue",
-        "To the SURVEY",
+
     ])
 
     update.message.reply_text(f"""{thanks}
@@ -342,13 +347,9 @@ PS: If you would like to play again, just type:
         )
         return ConversationHandler.END
     else:
-        update.message.reply_html(
-            continue_text,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton(continue_button, callback_data="continue"), InlineKeyboardButton(giveup_button.upper(), callback_data="giveup")]
-            ])
-        )
-        return ASK_CONTINUE
+        time.sleep(5)
+        return ask_feedback(update, context)
+
 
 def done(update: Update, context: CallbackContext):
     print("done")
@@ -358,7 +359,7 @@ def continue_callback(update: Update, context: CallbackContext):
     if update.callback_query.data == "giveup":
         return giveup(update, context)
     else:
-        return ask_feedback(update, context)
+        return ask_question(update, context)
 
 def main() -> None:
 
