@@ -265,7 +265,7 @@ def grade_answer(update: Update, context: CallbackContext):
     if not " " in answer:
         score = 0
 
-    distance = context.user_data["distance"] = max(context.user_data["distance"] - 2*score, 0)
+    distance = context.user_data["distance"] = max(context.user_data["distance"] - 4*score, 0)
 
     if lang == "en":
         model_doc = nlp(model)
@@ -298,7 +298,7 @@ def grade_answer(update: Update, context: CallbackContext):
         f"Only <strong>{distance} million</strong> km away from Mars!",
         "Would you like to continue your space mission?",
         "Continue",
-        "Give_up",
+        "To the Survey",
     ])
 
     update.message.reply_text(f"""{thanks}
