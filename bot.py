@@ -296,9 +296,9 @@ def grade_answer(update: Update, context: CallbackContext):
         f"{score} of 5 points",
         f"Awesome, that gives us fuel for {score*2} million more kilometers! \U0001F44F",
         f"Only <strong>{distance} million</strong> km away from Mars!",
-        "Would you like to continue your space mission?",
+        "Would you like to continue your space mission? If not, please give us feedback in our survey.",
         "Continue",
-        "SURVEY",
+        "To the SURVEY",
     ])
 
     update.message.reply_text(f"""{thanks}
