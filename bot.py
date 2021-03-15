@@ -298,7 +298,7 @@ def grade_answer(update: Update, context: CallbackContext):
         f"Only <strong>{distance} million</strong> km away from Mars!",
         "Would you like to continue your space mission?",
         "Continue",
-        "To the Survey",
+        "SURVEY",
     ])
 
     update.message.reply_text(f"""{thanks}
